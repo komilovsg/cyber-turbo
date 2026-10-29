@@ -6,7 +6,7 @@ import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const SKIP_DIRS = new Set(['node_modules', 'scripts', '.git', '.github', '.vercel', 'screenshots-src']);
+const SKIP_DIRS = new Set(['node_modules', 'scripts', '.git', '.github', '.vercel', 'screenshots-src', 'assets']);
 const SKIP_FILES = new Set(['sw.js', 'package.json', 'package-lock.json', 'README.md', 'vercel.json', 'serve.json', '.gitignore', '.nojekyll', 'LICENSE', 'OFL.txt']);
 
 async function walk(dir) {
