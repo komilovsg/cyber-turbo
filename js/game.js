@@ -4,6 +4,8 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 /* =========================================================
    Utilities
@@ -99,6 +101,17 @@ class Sound {
   coin() { this.tone(988, 0.08, 0.09, 'square'); this.tone(1319, 0.14, 0.09, 'square', 0, 0.07); }
   pickup() { this.tone(520, 0.25, 0.12, 'triangle', 1560); }
   whoosh() { this.burst({ freq: 3000, type: 'bandpass', dur: 0.35, vol: 0.22, q: 0.8, sweep: 500 }); }
+  horn() {
+    if (!this.ctx) return;
+    const t = this.t, ctx = this.ctx;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2000;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + 0.02);
+    g.gain.setValueAtTime(0.12, t + 0.32); g.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
+    lp.connect(g); g.connect(this.master);
+    for (const f of [370, 466]) { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(lp); o.start(t); o.stop(t + 0.45); }
+  }
+  tick(on) { this.tone(on ? 2200 : 1700, 0.025, 0.05, 'square'); }
   beep(go) { this.tone(go ? 1320 : 660, go ? 0.45 : 0.16, 0.14, 'triangle'); }
   setMuted(m) { this.muted = m; store.set('ct3d:muted', m); if (this.master) this.master.gain.setTargetAtTime(m ? 0 : 0.8, this.t, 0.02); }
   suspend() { if (this.ctx && this.ctx.state === 'running') this.ctx.suspend().catch(() => {}); }
@@ -116,18 +129,21 @@ const FOG_COLOR = 0x2a0f48;
 const VIEW = 420;                       // how far ahead the world is populated (m)
 
 const PRESETS = [
-  { id: 'roadster', name: 'Cyber Roadster', tag: 'Balanced sports coupe', color: 0x2de2e6,
+  { id: 'roadster', model: 'camaro', name: 'Chevrolet Camaro', tag: 'Balanced sports coupe', color: 0x2de2e6,
     L: 4.4, W: 2.0, r: 0.36, maxSpeed: 210, boost: 295, accel: 0.45, handling: 15, hp: 100, drain: 30, regen: 6,
     prof: { g: 0.3, nose: 0.56, beltF: 0.74, beltR: 0.84, tail: 0.78, roof: 1.18, cf: 0.2, rf: 0.0, rr: -0.27, cr: -0.42 }, wing: 'lip' },
-  { id: 'formula', name: 'Apex Formula', tag: 'Fast, light and fragile', color: 0xff2a6d,
+  { id: 'formula', model: 'aventador', name: 'Lamborghini Aventador', tag: 'Fast, light and fragile', color: 0xff2a6d,
     L: 4.6, W: 2.05, r: 0.34, maxSpeed: 245, boost: 330, accel: 0.55, handling: 17, hp: 70, drain: 34, regen: 6,
     prof: { g: 0.24, nose: 0.42, beltF: 0.62, beltR: 0.76, tail: 0.74, roof: 1.04, cf: 0.12, rf: -0.08, rr: -0.25, cr: -0.38 }, wing: 'big' },
-  { id: 'titan', name: 'Titan Enforcer', tag: 'Armored truck that shrugs off hits', color: 0xffb000,
+  { id: 'titan', model: 'pickup', name: 'Pickup Truck', tag: 'Armored truck that shrugs off hits', color: 0xffb000,
     L: 4.8, W: 2.3, r: 0.46, maxSpeed: 185, boost: 255, accel: 0.34, handling: 12, hp: 160, drain: 28, regen: 6,
     prof: { g: 0.46, nose: 0.9, beltF: 1.08, beltR: 1.12, tail: 1.06, roof: 1.78, cf: 0.28, rf: 0.14, rr: -0.42, cr: -0.46 }, wing: 'lightbar' },
-  { id: 'phantom', name: 'Neon Phantom', tag: 'Fastback built around its nitro', color: 0x9b5cff,
+  { id: 'phantom', model: 'rx7', name: 'Mazda RX-7', tag: 'Fastback built around its nitro', color: 0x9b5cff,
     L: 4.5, W: 2.05, r: 0.36, maxSpeed: 225, boost: 315, accel: 0.48, handling: 15.5, hp: 90, drain: 20, regen: 10,
-    prof: { g: 0.3, nose: 0.5, beltF: 0.68, beltR: 0.8, tail: 0.78, roof: 1.12, cf: 0.18, rf: -0.04, rr: -0.32, cr: -0.47 }, wing: 'lip' }
+    prof: { g: 0.3, nose: 0.5, beltF: 0.68, beltR: 0.8, tail: 0.78, roof: 1.12, cf: 0.18, rf: -0.04, rr: -0.32, cr: -0.47 }, wing: 'lip' },
+  { id: 'muscle', model: 'charger', name: 'Dodge Charger', tag: 'Heavy muscle car with brutal launch', color: 0xff6a00,
+    L: 5.0, W: 2.05, r: 0.38, maxSpeed: 215, boost: 290, accel: 0.5, handling: 13, hp: 130, drain: 30, regen: 6,
+    prof: { g: 0.32, nose: 0.6, beltF: 0.78, beltR: 0.88, tail: 0.82, roof: 1.24, cf: 0.2, rf: 0.0, rr: -0.27, cr: -0.42 }, wing: 'lip' }
 ];
 const TRAFFIC_COLORS = [0xe8e6f0, 0x9aa0b5, 0x283a7a, 0xb3202f, 0x1d1d24, 0x2f6b5a, 0xd8b04a];
 
@@ -457,13 +473,17 @@ function carKit(p) {
     wing: new THREE.BoxGeometry(W * (p.wing === 'big' ? 0.98 : 0.86), 0.06, p.wing === 'big' ? 0.5 : 0.36),
     post: new THREE.BoxGeometry(0.08, 0.3, 0.12),
     lightbar: new THREE.BoxGeometry(W * 0.6, 0.1, 0.18),
-    plate: new THREE.PlaneGeometry(1, 1)
+    plate: new THREE.PlaneGeometry(1, 1),
+    blinker: new THREE.BoxGeometry(0.22, 0.1, 0.1)
   };
   kitCache.set(p.id, kit);
   return kit;
 }
 
+const BLINK_OFF = new THREE.Color(0.25, 0.1, 0), BLINK_ON = new THREE.Color(3, 1.6, 0);
+
 function buildCar(p, color, isPlayer) {
+  if (templates[p.model]) return buildGlbCar(templates[p.model], p, color, isPlayer);
   const kit = carKit(p);
   const { L, W, r, prof: q } = p;
   const g = new THREE.Group();
@@ -486,8 +506,9 @@ function buildCar(p, color, isPlayer) {
     parts[(sz > 0 ? 'wheelF' : 'wheelR') + (sx < 0 ? 'L' : 'R')] = pivot;
   }
 
+  const myHead = isPlayer ? headMat.clone() : headMat;
   for (const sx of [-1, 1]) {
-    const h = new THREE.Mesh(kit.head, headMat);
+    const h = new THREE.Mesh(kit.head, myHead);
     h.position.set(sx * W * 0.3, q.nose - 0.07, L / 2 + 0.07);
     g.add(h);
   }
@@ -522,18 +543,158 @@ function buildCar(p, color, isPlayer) {
   shadow.rotation.x = -Math.PI / 2; shadow.scale.set(W + 1.0, L + 0.9, 1); shadow.position.y = 0.025;
   g.add(shadow);
 
+  let beam = null, blink = null;
   if (isPlayer) {
+    // Turn-signal lamps: +x is the car's left (it faces +z). One material per side, shared front and rear.
+    blink = { left: new THREE.MeshBasicMaterial({ color: BLINK_OFF, toneMapped: false }), right: new THREE.MeshBasicMaterial({ color: BLINK_OFF, toneMapped: false }) };
+    for (const sx of [-1, 1]) for (const [y, z] of [[q.nose - 0.07, L / 2 + 0.06], [q.tail - 0.1, -L / 2 - 0.08]]) {
+      const b = new THREE.Mesh(kit.blinker, blink[sx > 0 ? 'left' : 'right']);
+      b.position.set(sx * W * 0.45, y, z); g.add(b);
+    }
     const glow = new THREE.Mesh(kit.plate, new THREE.MeshBasicMaterial({ map: glowTex, color: new THREE.Color(color).multiplyScalar(0.45), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
     glow.rotation.x = -Math.PI / 2; glow.scale.set(W + 1.2, L + 1.4, 1); glow.position.y = 0.035;
     g.add(glow);
-    const beam = new THREE.SpotLight(0xf2f0ff, 6, 60, 0.45, 0.7, 1);
+    beam = new THREE.SpotLight(0xf2f0ff, 6, 60, 0.45, 0.7, 1);
     beam.position.set(0, q.nose, L / 2);
     beam.target.position.set(0, 0, 30);
     g.add(beam, beam.target);
   }
 
-  return { group: g, parts, body, wheels, tail: myTail, preset: p, color, halfW: W / 2, halfL: L / 2 + 0.08,
-    ownedGeo: isPlayer ? body.geometry : null, ownedMats: isPlayer ? [myTail] : [] };
+  return { group: g, parts, body, wheels, tail: myTail, headMat: isPlayer ? myHead : null, beam, blink, preset: p, color, r, halfW: W / 2, halfL: L / 2 + 0.08,
+    ownedGeo: isPlayer ? body.geometry : null, ownedMats: isPlayer ? [myTail, myHead, blink.left, blink.right] : [] };
+}
+
+/* =========================================================
+   GLB car models (optional: procedural cars above are the fallback while loading or if it fails)
+   ========================================================= */
+// rotY turns the model to face +z. w = wheel node names (merged back-axle nodes are fine). sp = detachable spoiler node.
+// hm/tm = head/tail light material names (swapped for the game's glowing ones on the player car); models without them get
+// flush decals instead: hd/td = [x, y] of the head/tail lights, sg = [fx, fy, rx, ry] of the front/rear turn signals (x as a
+// fraction of half width, y of height; z is found by ray-casting onto the body).
+// L = target length (m) for traffic; the player models use their preset's L.
+const MODELS = {
+  camaro: { rotY: 0, w: /^wheel_/, sp: 'aileron', hm: /^lights$/, tm: /^back_lights$/, sg: [0.7, 0.3, 0.68, 0.5] },
+  aventador: { rotY: 0, w: /Wheel_/, td: [0.5, 0.6], sg: [0.68, 0.3, 0.8, 0.56] },
+  pickup: { rotY: 0, w: /Wheel/, hm: /^Headlights$/, tm: /^BrakeLight$/ },
+  rx7: { rotY: 0, w: /_WHEEL$/, hm: /^Emission/, td: [0.5, 0.56], sg: [0.8, 0.3, 0.74, 0.5] },
+  charger: { rotY: 0, w: /^Circle\d/, tm: /^red_light$/ },
+  't-sedan1': { rotY: 0, L: 4.5, w: /Wheel/ },
+  't-sedan2': { rotY: 0, L: 4.0, w: /Wheel/ },
+  't-suv': { rotY: 0, L: 4.8, w: /Wheel/ },
+  't-police': { rotY: 0, L: 4.8, w: /Wheel/ },
+  't-hatch': { rotY: 0, L: 4.0, w: /_wheel_/ },
+  't-truck': { rotY: 0, L: 6.5, w: /^Wheels/ }
+};
+const TRAFFIC_MODELS = Object.keys(MODELS).filter((k) => k[0] === 't');
+const templates = {}, ray = new THREE.Raycaster(), _ro = new THREE.Vector3(), _rd = new THREE.Vector3();
+const glbKit = { plate: new THREE.PlaneGeometry(1, 1) };
+
+// Normalise once: face +z, scale to the target length, centre x/z, sit on y = 0; record wheel centres, radius and bounds.
+function makeTemplate(key, model) {
+  const cfg = MODELS[key], L = PRESETS.find((p) => p.model === key)?.L ?? cfg.L;
+  const inner = new THREE.Group(); inner.add(model); inner.rotation.y = cfg.rotY; inner.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(inner, true);
+  const s = L / (box.max.z - box.min.z);
+  inner.scale.setScalar(s);
+  inner.position.set(-(box.min.x + box.max.x) / 2 * s, -box.min.y * s, -(box.min.z + box.max.z) / 2 * s);
+  const root = new THREE.Group(); root.add(inner); root.updateMatrixWorld(true);
+  const size = new THREE.Box3().setFromObject(root, true).getSize(new THREE.Vector3());
+  const tpl = { cfg, root, halfW: size.x / 2, halfL: size.z / 2, h: size.y, r: 0, wheels: [], sp: null };
+  const nodeBox = (n) => new THREE.Box3().setFromObject(n, true);
+  const grab = (n, out) => {
+    if (cfg.w.test(n.name)) { out.push(n); return; }
+    n.children.forEach((c) => grab(c, out));
+  };
+  const found = []; grab(model, found);
+  let rs = 0;
+  for (const n of found) {
+    const b = nodeBox(n), c = b.getCenter(new THREE.Vector3());
+    rs += (b.max.y - b.min.y) / 2;
+    tpl.wheels.push({ name: n.name, c, front: c.z > 0, side: Math.abs(c.x) < tpl.halfW * 0.3 ? 0 : Math.sign(c.x) });
+  }
+  if (found.length) tpl.r = rs / found.length;
+  const sp = cfg.sp && model.getObjectByName(cfg.sp);
+  if (sp) tpl.sp = { name: cfg.sp, c: nodeBox(sp).getCenter(new THREE.Vector3()) };
+  tpl.surf = (x, y, dir) => {
+    ray.set(_ro.set(x, y, dir * (tpl.halfL + 2)), _rd.set(0, 0, -dir));
+    const hit = ray.intersectObject(root, true)[0];
+    return hit ? hit.point.z : dir * tpl.halfL;
+  };
+  if (key[0] === 't') root.traverse((o) => { // traffic keeps its own lights; make them glow
+    const n = o.material?.name;
+    if (n === 'TailLights') { o.material.emissive.setRGB(1, 0.06, 0.1); o.material.emissiveIntensity = 2.2; }
+    else if (n === 'Headlights') { o.material.emissive.setRGB(1, 0.8, 0.5); o.material.emissiveIntensity = 1.2; }
+  });
+  return tpl;
+}
+
+function buildGlbCar(tpl, p, color, isPlayer) {
+  const { halfW, halfL, h } = tpl;
+  const g = new THREE.Group(), parts = {}, wheels = [];
+  const body = tpl.root.clone(true);
+  g.add(body);
+  // Re-parent a node under pivot (steering) > spin groups centred on it, keeping its world transform
+  const wrap = (name, c) => {
+    const pivot = new THREE.Group(), spin = new THREE.Group();
+    pivot.position.copy(c); pivot.add(spin); g.add(pivot);
+    const node = body.getObjectByName(name);
+    if (node) spin.attach(node);
+    return { pivot, spin };
+  };
+  for (const w of tpl.wheels) {
+    const { pivot, spin } = wrap(w.name, w.c);
+    wheels.push({ pivot, spin, front: w.front });
+    if (w.side) parts[(w.front ? 'wheelF' : 'wheelR') + (w.side < 0 ? 'L' : 'R')] = pivot;
+  }
+  if (tpl.sp) parts.spoiler = wrap(tpl.sp.name, tpl.sp.c).pivot;
+
+  // Lights: the player's own light materials become the game's glowing ones; otherwise flush decals on the body
+  const cfg = tpl.cfg, myHead = headMat.clone(), myTail = tailMat.clone();
+  const swap = (re, mat) => { let n = 0; body.traverse((o) => { if (o.isMesh && re?.test(o.material.name)) { o.material = mat; n++; } }); return n; };
+  const decal = (mat, x, y, dir, w, h) => {
+    const m = new THREE.Mesh(glbKit.plate, mat);
+    m.scale.set(w, h, 1); m.position.set(x, y, tpl.surf(x, y, dir) + dir * 0.012);
+    if (dir < 0) m.rotation.y = Math.PI;
+    g.add(m); return m;
+  };
+  let blink = null;
+  if (isPlayer) {
+    const noHead = !swap(cfg.hm, myHead), noTail = !swap(cfg.tm, myTail);
+    const [hx, hy] = cfg.hd || [0.6, 0.36], [tx, ty] = cfg.td || [0.6, 0.42], [fx, fy, rx, ry] = cfg.sg || [0.82, 0.34, 0.82, 0.42];
+    const lamp = () => new THREE.MeshBasicMaterial({ color: BLINK_OFF, toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+    blink = { left: lamp(), right: lamp() };
+    for (const sx of [-1, 1]) {
+      if (noHead) decal(myHead, sx * halfW * hx, h * hy, 1, 0.3, 0.07);
+      if (noTail) decal(myTail, sx * halfW * tx, h * ty, -1, 0.34, 0.07);
+      const bm = blink[sx > 0 ? 'left' : 'right'];
+      decal(bm, sx * halfW * fx, h * fy, 1, 0.16, 0.07); decal(bm, sx * halfW * rx, h * ry, -1, 0.16, 0.07);
+    }
+  }
+
+  const shadow = new THREE.Mesh(glbKit.plate, shadowMat);
+  shadow.rotation.x = -Math.PI / 2; shadow.scale.set(halfW * 2 + 1.0, halfL * 2 + 0.9, 1); shadow.position.y = 0.025;
+  g.add(shadow);
+
+  let beam = null;
+  if (isPlayer) {
+    const glow = new THREE.Mesh(glbKit.plate, new THREE.MeshBasicMaterial({ map: glowTex, color: new THREE.Color(p.color).multiplyScalar(0.45), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    glow.rotation.x = -Math.PI / 2; glow.scale.set(halfW * 2 + 1.2, halfL * 2 + 1.4, 1); glow.position.y = 0.035;
+    g.add(glow);
+    beam = new THREE.SpotLight(0xf2f0ff, 6, 60, 0.45, 0.7, 1);
+    beam.position.set(0, h * 0.4, halfL);
+    beam.target.position.set(0, 0, 30);
+    g.add(beam, beam.target);
+  }
+  return { group: g, parts, body, wheels, tail: isPlayer ? myTail : tailMat, headMat: isPlayer ? myHead : null, beam, blink, preset: p, color, r: tpl.r || p.r, glb: true, halfW, halfL,
+    ownedGeo: null, ownedMats: isPlayer ? [myTail, myHead, blink.left, blink.right] : [] };
+}
+
+const gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+function loadModels() {
+  return Promise.allSettled(Object.keys(MODELS).map((key) => gltfLoader.loadAsync(`models/${key}.glb`).then((gltf) => {
+    templates[key] = makeTemplate(key, gltf.scene);
+    if (phase === 'garage' && preset().model === key) { const rot = P.car.group.rotation.y; setPlayerCar(); P.car.group.rotation.y = rot; }
+  }).catch((err) => console.warn('model', key, err.message || err))));
 }
 
 function disposeCar(car) {
@@ -547,6 +708,7 @@ function disposeCar(car) {
 // Dent the player's body around a local-space point. Duplicate vertices share a position, so they move together.
 const _v = new THREE.Vector3(), _c = new THREE.Vector3();
 function dentBody(car, localPoint, strength) {
+  if (!car.body.geometry) return; // GLB cars are not dented
   const pos = car.body.geometry.attributes.position;
   const radius = 1.4;
   _c.set(0, car.preset.prof.beltF * 0.7, 0);
@@ -630,14 +792,45 @@ function detachPart(car, key, impulse) {
 let phase = 'garage';          // garage | countdown | race | paused | over
 let pausedFrom = null;
 let timeScale = 1;
-const input = { left: false, right: false, gas: false, brake: false, nitro: false };
+const input = { left: false, right: false, gas: false, brake: false, nitro: false, look: false };
 
 const P = { car: null, x: 0, z: 0, y: 0, vy: 0, speed: 0, lat: 0, yaw: 0, roll: 0, pitch: 0, hp: 100, maxHp: 100,
-  nitro: 100, nitroOn: false, invuln: 0, shake: 0, smokeT: 0, scrapeT: 0, spin: new THREE.Vector3(), steerVis: 0, braking: false };
+  nitro: 100, nitroOn: false, invuln: 0, shake: 0, smokeT: 0, scrapeT: 0, spin: new THREE.Vector3(), steerVis: 0, braking: false, blink: 0, blinkX: 0 };
 const S = { score: 0, mult: 1, coins: 0, dist: 0, near: 0, best: Number(store.get('ct3d:best', 0)) || 0,
   carIndex: clamp(Number(store.get('ct3d:car', 0)) | 0, 0, PRESETS.length - 1), nextWave: 0, cdT: 0, cdStep: -1, overT: 0, overShown: false };
 const traffic = [];
 const items = [];
+const act = { hornCd: 0, flashCd: 0, flashT: 0, blinkT: 0, blinkOn: false };    // horn / headlight-flash cooldowns and flash timer
+const HEAD_BASE = headMat.color.clone(), BEAM_BASE = 6;
+
+// Tilt steering. beta/gamma are relative to the device frame; rotate by the screen angle so that
+// "device rolled to the user's right" is positive: portrait = +gamma (right edge down), landscape 90
+// (top edge to the left, user's right = device bottom edge) = +beta, 270 = -beta, upside-down = -gamma.
+const tiltOK = coarse && 'DeviceOrientationEvent' in window;
+let steerMode = tiltOK && store.get('ct3d:steer', 'buttons') === 'tilt' ? 'tilt' : 'buttons';
+let tiltRaw = null, tiltNeutral = 0, tiltCal = false, tiltGot = false;
+const TILT_RANGE = 22, TILT_DEAD = 3;
+if (tiltOK) addEventListener('deviceorientation', (e) => {
+  const a = screen.orientation?.angle ?? window.orientation ?? 0;
+  const v = a === 90 ? e.beta : (a === 270 || a === -90) ? -e.beta : a === 180 ? -e.gamma : e.gamma;
+  if (v == null || Number.isNaN(v)) return;
+  tiltRaw = v; tiltGot = true;
+  if (tiltCal) { tiltNeutral = v; tiltCal = false; }
+});
+function tiltSteer() {
+  if (steerMode !== 'tilt' || tiltOff || tiltRaw === null) return null;
+  const d = tiltRaw - tiltNeutral;
+  return Math.sign(d) * clamp((Math.abs(d) - TILT_DEAD) / (TILT_RANGE - TILT_DEAD), 0, 1);
+}
+let tiltOff = false;   // session-only fallback to buttons when no orientation data arrives
+const applySteerMode = () => { const t = steerMode === 'tilt' && !tiltOff; $('touch').classList.toggle('tilt', t); document.body.classList.toggle('tilt-mode', t); };
+let tiltWatch = 0;
+function checkTiltSoon() {   // after the race starts: no orientation sample in ~1.5 s -> show buttons for this session
+  clearTimeout(tiltWatch);
+  if (steerMode !== 'tilt' || tiltGot) return;
+  tiltWatch = setTimeout(() => { if (!tiltGot && steerMode === 'tilt') { tiltOff = true; applySteerMode(); pop('Tilt unavailable — open in Safari/Chrome', 'bad'); } }, 1500);
+}
+const needsTiltPermission = () => tiltOK && typeof DeviceOrientationEvent.requestPermission === 'function';
 
 const preset = () => PRESETS[S.carIndex];
 
@@ -646,7 +839,7 @@ function setPlayerCar() {
   const p = preset();
   P.car = buildCar(p, p.color, true);
   P.car.group.add(flames);
-  flames.position.set(0, p.prof.g + 0.12, -p.L / 2 - 0.1);
+  flames.position.set(0, P.car.glb ? 0.3 : p.prof.g + 0.12, -(P.car.glb ? P.car.halfL : p.L / 2) - 0.1);
   scene.add(P.car.group);
   document.documentElement.style.setProperty('--car', '#' + new THREE.Color(p.color).getHexString());
 }
@@ -670,7 +863,8 @@ function laneFree(laneX, z, gap, ignore) {
 function addTraffic(lane, z) {
   const x = LANES[lane];
   if (!laneFree(x, z, 16)) return;
-  const p = PRESETS[(Math.random() * PRESETS.length) | 0];
+  const ready = TRAFFIC_MODELS.filter((k) => templates[k]), key = ready[(Math.random() * ready.length) | 0];
+  const p = key ? { id: key, model: key, r: templates[key].r } : PRESETS[(Math.random() * PRESETS.length) | 0];
   const car = buildCar(p, TRAFFIC_COLORS[(Math.random() * TRAFFIC_COLORS.length) | 0], false);
   car.group.position.set(x, 0, z);
   scene.add(car.group);
@@ -707,6 +901,17 @@ function spawnAhead() {
    Damage, collisions, near misses
    ========================================================= */
 const _p = new THREE.Vector3();
+const LOSS = [['splitter', 0.8], ['hood', 0.6], ['spoiler', 0.4], ['wheelFL', 0.18]];   // part -> detaches below this hp fraction
+// After a repair: rebuild the player car (clears dents), keep pose, and silently drop the parts still missing at the current hp.
+function restoreCar() {
+  const old = P.car, g = old.group, flash = old.headMat.color.clone(), beam = old.beam.intensity;
+  setPlayerCar();
+  const car = P.car;
+  car.group.position.copy(g.position); car.group.rotation.copy(g.rotation); car.group.scale.copy(g.scale); car.group.visible = g.visible;
+  car.headMat.color.copy(flash); car.beam.intensity = beam;
+  const frac = P.hp / P.maxHp;
+  for (const [key, th] of LOSS) if (frac < th && car.parts[key]) { car.parts[key].parent?.remove(car.parts[key]); delete car.parts[key]; }
+}
 function damage(amount, worldPoint, k) {
   const car = P.car;
   P.hp = Math.max(0, P.hp - amount);
@@ -722,10 +927,7 @@ function damage(amount, worldPoint, k) {
 
   const frac = P.hp / P.maxHp;
   const fling = () => new THREE.Vector3(rand(-6, 6), rand(4, 9), P.speed * MS_PER_KMH * rand(0.3, 0.6));
-  if (frac < 0.8) detachPart(car, 'splitter', fling());
-  if (frac < 0.6) detachPart(car, 'hood', fling());
-  if (frac < 0.4) detachPart(car, 'spoiler', fling());
-  if (frac < 0.18) detachPart(car, 'wheelFL', fling());
+  for (const [key, th] of LOSS) if (frac < th) detachPart(car, key, fling());
 
   if (P.hp <= 0) wreck();
 }
@@ -788,7 +990,16 @@ function wreck() {
    ========================================================= */
 function updatePlayer(dt, controllable) {
   const p = preset(), car = P.car;
-  const steer = controllable ? (input.left ? 1 : 0) - (input.right ? 1 : 0) : 0;
+  let steer = controllable ? (input.left ? 1 : 0) - (input.right ? 1 : 0) : 0;
+  if (controllable && !input.left && !input.right) { const tl = tiltSteer(); if (tl !== null) steer = -tl; }   // right tilt -> steer right (negative)
+  act.hornCd -= dt; act.flashCd -= dt;
+  if (controllable) updateBlink(dt);
+  if (act.flashT > 0 || car.headMat.color.r > HEAD_BASE.r + 0.01) {
+    act.flashT = Math.max(0, act.flashT - dt);
+    const on = act.flashT > 0;
+    car.headMat.color.copy(HEAD_BASE).multiplyScalar(on ? 3 : 1);
+    car.beam.intensity = BEAM_BASE * (on ? 4 : 1);
+  }
   const wantsNitro = controllable && input.nitro && P.nitro > 0.5;
   const brake = controllable && input.brake;
   const gas = controllable && (input.gas || wantsNitro);
@@ -805,14 +1016,14 @@ function updatePlayer(dt, controllable) {
   else P.speed = Math.max(0, P.speed - (6 + P.speed * 0.1) * dt);
 
   // Lateral motion with inertia
-  const grip = clamp(0.25 + P.speed / 120, 0.25, 1);
+  const grip = clamp(P.speed / 60, 0, 1);
   P.lat = damp(P.lat, steer * p.handling * grip, 9, dt);
   P.x += P.lat * dt;
   const limit = ROAD_HALF - car.halfW - 0.3;
   if (Math.abs(P.x) > limit) {
     const side = Math.sign(P.x);
     P.x = side * limit;
-    if (P.speed > 40 && (Math.abs(P.lat) > 1 || steer === side)) {
+    if (P.speed > 40 && (Math.abs(P.lat) > 1 || (Math.sign(steer) === side && grip > 0.5))) {
       P.speed *= 1 - 0.5 * dt;
       P.scrapeT -= dt;
       if (P.scrapeT <= 0) {
@@ -843,7 +1054,7 @@ function updatePlayer(dt, controllable) {
   const g = car.group;
   g.position.set(P.x, 0, P.z);
   g.rotation.set(P.pitch, P.yaw, P.roll);
-  for (const w of car.wheels) { w.spin.rotation.x += ms * dt / p.r; if (w.front) w.pivot.rotation.y = P.steerVis; }
+  for (const w of car.wheels) { w.spin.rotation.x += ms * dt / car.r; if (w.front) w.pivot.rotation.y = P.steerVis; }
   car.tail.color.copy(P.braking ? TAIL_BRAKE : TAIL);
 
   if (P.invuln > 0) { P.invuln -= dt; g.visible = P.invuln <= 0 || Math.floor(P.invuln * 16) % 2 === 0; }
@@ -881,8 +1092,56 @@ function updatePlayer(dt, controllable) {
   P.gear = P.speed < 1 && !gas ? 'N' : String(gear);
 }
 
+const playerInLane = (laneX, z, gap) => !!P.car && Math.abs(P.x - laneX) < LANE_W * 0.75 && Math.abs(P.z - z) < gap;
+
+// Horn / flash: nearest car ahead in the player's lane yields after a short reaction delay
+function alertTraffic() {
+  let best = null;
+  for (const t of traffic) {
+    const dz = t.z - P.z;
+    if (t.wrecked || dz <= 0 || dz >= 70 || Math.abs(t.x - P.x) >= LANE_W * 0.6) continue;
+    if (!best || dz < best.z - P.z) best = t;
+  }
+  if (best && !(best.yieldT > 0)) best.yieldT = rand(0.25, 0.6);
+}
+function yieldLane(t) {
+  const li = LANES.indexOf(t.targetX);
+  const opts = [li - 1, li + 1].filter((ni) => ni >= 0 && ni < LANES.length && laneFree(LANES[ni], t.z, 14, t) && !playerInLane(LANES[ni], t.z, 14))
+    .sort((a, b) => Math.abs(LANES[b] - P.x) - Math.abs(LANES[a] - P.x));
+  if (opts.length) t.targetX = LANES[opts[0]];
+  else if (!t.boostT) { t.boostAdd = Math.max(0, Math.min(15, 140 - t.cruise)); t.cruise += t.boostAdd; t.boostT = 3; }
+}
+const blinkBtns = [...document.querySelectorAll('.t-btn[data-blink]')];
+function setBlink(side) {
+  P.blink = side; P.blinkX = P.x; act.blinkT = 0; act.blinkOn = false;
+  blinkBtns.forEach((b) => { b.setAttribute('aria-pressed', String(b.dataset.blink === side)); b.classList.remove('lit'); });
+  if (P.car?.blink) { P.car.blink.left.color.copy(BLINK_OFF); P.car.blink.right.color.copy(BLINK_OFF); }
+  if (side) { act.blinkOn = true; act.blinkT = 0; sound.tick(true); }
+}
+function toggleBlink(side) { if (phase === 'race') setBlink(P.blink === side ? 0 : side); }
+function updateBlink(dt) {
+  if (!P.blink) return;
+  const dir = P.blink === 'left' ? 1 : -1;
+  if ((P.x - P.blinkX) * dir > LANE_W * 0.8) { setBlink(0); return; }   // self-cancel after changing lane
+  act.blinkT += dt;
+  const on = Math.floor(act.blinkT / 0.33) % 2 === 0;
+  if (on !== act.blinkOn) sound.tick(on);
+  act.blinkOn = on;
+  P.car.blink[P.blink].color.copy(on ? BLINK_ON : BLINK_OFF);
+  blinkBtns.forEach((b) => b.classList.toggle('lit', on && b.dataset.blink === P.blink));
+}
+function horn() {
+  if (phase !== 'race' || act.hornCd > 0) return;
+  act.hornCd = 0.3; sound.horn(); alertTraffic();
+}
+function flash() {
+  if (phase !== 'race' || act.flashCd > 0) return;
+  act.flashCd = 0.3; act.flashT = 0.25; alertTraffic();
+}
+
 function updateTraffic(dt, collide) {
   const d = difficulty();
+  const aware = !!P.car && (phase === 'race' || phase === 'countdown');
   for (let i = traffic.length - 1; i >= 0; i--) {
     const t = traffic[i];
     if (t.wrecked) {
@@ -893,13 +1152,36 @@ function updateTraffic(dt, collide) {
       if (Math.random() < dt * 6) spawnSmoke(_p.set(t.x, 1, t.z), true, false);
     } else {
       // Follow the car ahead in the same lane instead of driving through it
-      let speed = t.cruise;
+      let speed = t.cruise, brakeK = 2, held = false;
       for (const o of traffic) {
         if (o === t || Math.abs(o.x - t.targetX) > LANE_W * 0.5) continue;
         const gap = o.z - t.z;
         if (gap > 0 && gap < 18) speed = Math.min(speed, o.speed - (18 - gap));
       }
-      t.speed = damp(t.speed, Math.max(20, speed), 2, dt);
+      // The player is an obstacle too (never dodged, only slowed for)
+      if (aware) {
+        const gap = P.z - t.z - P.car.halfL - t.car.halfL;
+        if (gap > -0.5 && gap < 18 && (Math.abs(P.x - t.x) < LANE_W * 0.75 || Math.abs(P.x - t.targetX) < LANE_W * 0.75)) {
+          const lim = Math.max(0, P.speed - (18 - gap));
+          if (lim < speed) { speed = lim; held = true; if (lim < t.speed - 8) brakeK = 7; }
+        }
+      }
+      // Player signals toward this car's lane from just ahead of it: ease off to let him in
+      if (aware && P.blink && P.z - t.z > 0 && P.z - t.z < 25 && Math.abs(t.targetX - (P.x + (P.blink === 'left' ? 1 : -1) * LANE_W)) < LANE_W * 0.6) speed = Math.min(speed, t.cruise - 10);
+      t.speed = damp(t.speed, held ? speed : Math.max(20, speed), brakeK, dt);
+
+      if (t.yieldT > 0 && (t.yieldT -= dt) <= 0) yieldLane(t);
+      if (t.boostT > 0 && (t.boostT -= dt) <= 0) { t.cruise -= t.boostAdd; t.boostT = 0; }
+
+      // Held back by the player for a while: go around
+      t.heldT = held ? (t.heldT || 0) + dt : 0;
+      if (t.heldT > 1.2) {
+        t.heldT = 0;
+        const li = LANES.indexOf(t.targetX), side = Math.random() < 0.5 ? -1 : 1;
+        for (const ni of [li + side, li - side]) {
+          if (ni >= 0 && ni < LANES.length && laneFree(LANES[ni], t.z, 14, t) && !playerInLane(LANES[ni], t.z, 14)) { t.targetX = LANES[ni]; break; }
+        }
+      }
 
       // Occasional lane changes as the run gets harder
       t.laneT -= dt;
@@ -908,7 +1190,7 @@ function updateTraffic(dt, collide) {
         if (Math.random() < 0.25 + d * 0.5 && t.z - P.z > 28) {
           const li = LANES.indexOf(t.targetX);
           const ni = li + (Math.random() < 0.5 ? -1 : 1);
-          if (ni >= 0 && ni < LANES.length && laneFree(LANES[ni], t.z, 14, t)) t.targetX = LANES[ni];
+          if (ni >= 0 && ni < LANES.length && laneFree(LANES[ni], t.z, 14, t) && !playerInLane(LANES[ni], t.z, 14)) t.targetX = LANES[ni];
         }
       }
       const prevX = t.x;
@@ -918,7 +1200,7 @@ function updateTraffic(dt, collide) {
     t.z += t.speed * MS_PER_KMH * dt;
     t.car.group.position.set(t.x, 0, t.z);
     t.car.group.rotation.y = t.yaw;
-    for (const w of t.car.wheels) w.spin.rotation.x += t.speed * MS_PER_KMH * dt / t.car.preset.r;
+    for (const w of t.car.wheels) w.spin.rotation.x += t.speed * MS_PER_KMH * dt / t.car.r;
 
     if (collide) {
       hitTraffic(t, dt);
@@ -951,7 +1233,7 @@ function updateItems(dt) {
     if (Math.abs(it.mesh.position.z - P.z) < car.halfL + 0.4 && Math.abs(it.mesh.position.x - P.x) < car.halfW + 0.5) {
       if (it.type === 'coin') { S.coins++; S.score += 100 * S.mult; sound.coin(); }
       else if (it.type === 'nitro') { P.nitro = 100; S.score += 50; pop('Nitro refilled', 'near'); sound.pickup(); }
-      else { P.hp = Math.min(P.maxHp, P.hp + P.maxHp * 0.3); pop('Hull repaired', 'good'); sound.pickup(); }
+      else { P.hp = Math.min(P.maxHp, P.hp + P.maxHp * 0.3); pop('Hull repaired', 'good'); sound.pickup(); restoreCar(); }
       scene.remove(it.mesh); items.splice(i, 1);
     } else if (it.mesh.position.z < P.z - 20) {
       scene.remove(it.mesh); items.splice(i, 1);
@@ -1001,10 +1283,40 @@ function updateEffects(dt) {
 }
 
 /* =========================================================
+   Rear-view mirror
+   ========================================================= */
+let mirrorOn = !!store.get('ct3d:mirror', false), mirrorShown = false;
+const mirrorCam = new THREE.PerspectiveCamera(50, 3, 0.3, 600);
+const mirrorFrame = $('mirror-frame'), mirrorRect = { x: 0, y: 0, w: 1, h: 1 };
+function layoutMirror() {   // the CSS frame defines the rect; the viewport follows it
+  const r = mirrorFrame.getBoundingClientRect();
+  Object.assign(mirrorRect, { x: r.left, y: r.top, w: r.width, h: r.height });
+  if (r.height > 0) { mirrorCam.aspect = r.width / r.height; mirrorCam.updateProjectionMatrix(); }
+}
+function setMirror(on) {
+  mirrorOn = on; store.set('ct3d:mirror', on);
+  $('b-mirror').setAttribute('aria-pressed', String(on));
+  mirrorShown = false; updateOptionLabels();
+}
+function renderMirror() {
+  const c = P.car;
+  // Camera sits just behind the tail so the player's own car is out of shot. The world is mirrored in x
+  // (scene.scale.x = -1) for a true mirror image; the negative determinant also flips face culling to match.
+  mirrorCam.position.set(-P.x, c.preset.prof.roof + P.y, P.z - c.halfL - 0.35);
+  mirrorCam.lookAt(-P.x, 1.1, P.z - 60);
+  const { x, y, w, h } = mirrorRect, vy = innerHeight - y - h;
+  renderer.setViewport(x, vy, w, h); renderer.setScissor(x, vy, w, h); renderer.setScissorTest(true);
+  scene.scale.x = -1;
+  renderer.render(scene, mirrorCam);
+  scene.scale.x = 1;
+  renderer.setScissorTest(false); renderer.setViewport(0, 0, innerWidth, innerHeight);
+}
+
+/* =========================================================
    Camera
    ========================================================= */
 const camOff = new THREE.Vector3(0, 3.2, -7.8);
-let fov = 62, orbit = 0;
+let fov = 62, orbit = 0, lookBack = 0;
 
 function applyViewOffset() {
   const w = innerWidth, h = innerHeight;
@@ -1041,7 +1353,12 @@ function updateCamera(dt) {
     if (!reduceMotion) camera.position.add(_v.set(rand(-1, 1), rand(-1, 1), 0).multiplyScalar(P.shake * 0.35));
     P.shake = Math.max(0, P.shake - dt * 2.5);
   }
-  camera.lookAt(P.x * 0.8, 1.1, P.z + 14);
+  lookBack = damp(lookBack, input.look ? 1 : 0, 10, dt);
+  if (lookBack > 0.002) {   // hold C: swing round to a spot just ahead of the car, looking back along the road
+    camera.position.lerp(_v.set(P.x * 0.8, 2.3, P.z + 6.5), lookBack);
+    _c.set(P.x * 0.8, 1.1, P.z + 14).lerp(_p.set(P.x, 1.2, P.z - 20), lookBack);
+    camera.lookAt(_c);
+  } else camera.lookAt(P.x * 0.8, 1.1, P.z + 14);
   const targetFov = 62 + sr * 14 + (P.nitroOn ? 6 : 0);
   fov = damp(fov, targetFov, 4, dt);
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
@@ -1116,6 +1433,10 @@ function renderGarage() {
 function updateOptionLabels() {
   $('g-quality').textContent = 'Graphics: ' + quality;
   $('g-sound').textContent = 'Sound: ' + (sound.muted ? 'off' : 'on');
+  $('g-mirror').textContent = 'Mirror: ' + (mirrorOn ? 'on' : 'off');
+  $('b-mirror').setAttribute('aria-pressed', String(mirrorOn));
+  $('g-steer').hidden = !tiltOK;
+  $('g-steer').textContent = 'Steering: ' + steerMode;
   const btn = $('b-sound');
   btn.setAttribute('aria-label', sound.muted ? 'Turn sound on' : 'Mute sound');
   btn.querySelector('use').setAttribute('href', sound.muted ? '#i-mute' : '#i-sound');
@@ -1134,6 +1455,7 @@ function switchCar(step) {
 function enterGarage() {
   keepAwake(false);
   phase = 'garage'; pausedFrom = null; timeScale = 1;
+  setBlink(0);
   clearEntities();
   P.x = 0; P.z = 0; P.y = 0; P.speed = 0;
   setPlayerCar();
@@ -1161,6 +1483,10 @@ async function keepAwake(on) {
 
 function startRace() {
   sound.ensure();
+  if (steerMode === 'tilt' && needsTiltPermission()) {   // iOS: permission is per page load; ask on the Start gesture
+    DeviceOrientationEvent.requestPermission().then((r) => { if (r !== 'granted') { tiltOff = true; applySteerMode(); pop('Tilt unavailable — open in Safari/Chrome', 'bad'); } }, () => {});
+  }
+  tiltOff = false; tiltCal = true; act.flashT = 0; act.hornCd = act.flashCd = 0;
   keepAwake(true);
   clearEntities();
   setPlayerCar();
@@ -1169,7 +1495,8 @@ function startRace() {
     nitro: 100, nitroOn: false, invuln: 0, shake: 0, smokeT: 0, scrapeT: 0, steerVis: 0, gear: 'N' });
   Object.assign(S, { score: 0, mult: 1, coins: 0, dist: 0, near: 0, nextWave: 150, cdT: 0, cdStep: -1 });
   Object.keys(input).forEach((k) => (input[k] = false));
-  camOff.set(0, 3.2, -7.8); fov = 62; timeScale = 1;
+  camOff.set(0, 3.2, -7.8); fov = 62; lookBack = 0; timeScale = 1;
+  applySteerMode(); setBlink(0);
   phase = 'countdown';
   show('garage', false); show('modal', false); show('m-over', false); show('m-pause', false); show('hud', true); show('countdown', true);
   $('pops').replaceChildren();
@@ -1185,7 +1512,7 @@ function updateCountdown(dt) {
     S.cdStep = step;
     const label = ['3', '2', '1', 'Go'][step];
     if (label) { $('countdown').innerHTML = `<span>${label}</span>`; sound.beep(step === 3); }
-    if (step === 3) phase = 'race';
+    if (step === 3) { phase = 'race'; checkTiltSoon(); }
   }
 }
 
@@ -1227,7 +1554,7 @@ function showResults() {
    Input
    ========================================================= */
 const KEYMAP = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'gas', KeyW: 'gas',
-  ArrowDown: 'brake', KeyS: 'brake', Space: 'nitro', ShiftLeft: 'nitro', ShiftRight: 'nitro' };
+  ArrowDown: 'brake', KeyS: 'brake', Space: 'nitro', ShiftLeft: 'nitro', ShiftRight: 'nitro', KeyC: 'look' };
 
 addEventListener('keydown', (e) => {
   if (phase === 'garage') {
@@ -1238,6 +1565,8 @@ addEventListener('keydown', (e) => {
   }
   if (e.code === 'KeyP' || e.code === 'Escape') { e.preventDefault(); if (!e.repeat) togglePause(); return; }
   if (phase === 'over' && S.overShown && e.code === 'Enter' && document.activeElement === document.body) { startRace(); return; }
+  if (e.code === 'KeyH' || e.code === 'KeyL') { e.preventDefault(); if (!e.repeat) (e.code === 'KeyH' ? horn : flash)(); return; }
+  if (e.code === 'KeyQ' || e.code === 'KeyE') { e.preventDefault(); if (!e.repeat) toggleBlink(e.code === 'KeyQ' ? 'left' : 'right'); return; }
   const k = KEYMAP[e.code];
   if (k && (phase === 'race' || phase === 'countdown')) { e.preventDefault(); input[k] = true; }
 });
@@ -1247,7 +1576,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) { togglePause(true); sound.suspend(); }
 });
 
-document.querySelectorAll('.t-btn').forEach((btn) => {
+document.querySelectorAll('.t-btn[data-key]').forEach((btn) => {
   const key = btn.dataset.key;
   const up = () => { input[key] = false; btn.classList.remove('down'); };
   btn.addEventListener('pointerdown', (e) => {
@@ -1258,6 +1587,18 @@ document.querySelectorAll('.t-btn').forEach((btn) => {
   btn.addEventListener('pointerup', up);
   btn.addEventListener('pointercancel', up);
   btn.addEventListener('lostpointercapture', up);
+  btn.addEventListener('contextmenu', (e) => e.preventDefault());
+});
+document.querySelectorAll('.t-btn[data-act]').forEach((btn) => {
+  const fn = btn.dataset.act === 'horn' ? horn : flash, up = () => btn.classList.remove('down');
+  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); btn.classList.add('down'); fn(); });
+  btn.addEventListener('pointerup', up);
+  btn.addEventListener('pointercancel', up);
+  btn.addEventListener('pointerleave', up);
+  btn.addEventListener('contextmenu', (e) => e.preventDefault());
+});
+blinkBtns.forEach((btn) => {
+  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); toggleBlink(btn.dataset.blink); });
   btn.addEventListener('contextmenu', (e) => e.preventDefault());
 });
 if (coarse) document.body.classList.add('is-touch');
@@ -1274,6 +1615,24 @@ $('b-pause').addEventListener('click', () => togglePause());
 const toggleSound = () => { sound.ensure(); sound.setMuted(!sound.muted); updateOptionLabels(); };
 $('b-sound').addEventListener('click', toggleSound);
 $('g-sound').addEventListener('click', toggleSound);
+$('g-steer').addEventListener('click', async () => {
+  const b = $('g-steer');
+  if (steerMode === 'tilt') steerMode = 'buttons';
+  else {
+    let ok = true;
+    if (needsTiltPermission()) { try { ok = (await DeviceOrientationEvent.requestPermission()) === 'granted'; } catch { ok = false; } }
+    if (!ok) { b.textContent = 'Tilt: permission denied'; setTimeout(updateOptionLabels, 2200); return; }
+    steerMode = 'tilt';
+  }
+  store.set('ct3d:steer', steerMode); applySteerMode(); updateOptionLabels();
+});
+$('g-mirror').addEventListener('click', () => setMirror(!mirrorOn));
+const showCredits = (on) => { $('credits').hidden = !on; if (on) $('credits-ok').focus({ preventScroll: true }); else $('g-credits').focus({ preventScroll: true }); };
+$('g-credits').addEventListener('click', () => showCredits(true));
+$('credits-ok').addEventListener('click', () => showCredits(false));
+$('credits').addEventListener('click', (e) => { if (e.target === $('credits')) showCredits(false); });
+addEventListener('keydown', (e) => { if (e.code === 'Escape' && !$('credits').hidden) showCredits(false); });
+$('b-mirror').addEventListener('click', () => setMirror(!mirrorOn));
 $('g-quality').addEventListener('click', () => { quality = quality === 'high' ? 'low' : 'high'; store.set('ct3d:quality', quality); resize(); updateOptionLabels(); });
 
 /* =========================================================
@@ -1290,6 +1649,7 @@ function resize() {
   camera.aspect = w / h;
   applyViewOffset();
   camera.updateProjectionMatrix();
+  if (mirrorShown) layoutMirror();
 }
 addEventListener('resize', resize);
 
@@ -1334,8 +1694,13 @@ function frame(now) {
   }
 
   if (quality === 'high') composer.render(); else renderer.render(scene, camera);
+
+  const mv = mirrorOn && (phase === 'race' || phase === 'countdown' || phase === 'paused');
+  if (mv !== mirrorShown) { mirrorShown = mv; mirrorFrame.hidden = !mv; if (mv) layoutMirror(); }
+  if (mv) renderMirror();
 }
 
 resize();
 enterGarage();
+loadModels();
 renderer.setAnimationLoop(frame);

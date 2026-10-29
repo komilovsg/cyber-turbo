@@ -2,6 +2,18 @@
 
 Неоновая гонка по ночному шоссе на three.js. Работает как PWA: устанавливается на телефон и компьютер, открывается во весь экран и играется без интернета.
 
+**Играть:** https://cyber-turbo.vercel.app
+
+## Возможности
+
+- 5 машин с 3D-моделями: Chevrolet Camaro, Lamborghini Aventador, Pickup Truck, Mazda RX-7, Dodge Charger. У каждой свои скорость, разгон, управляемость, броня и нитро.
+- Настоящие фары, стоп-сигналы и поворотники на самих моделях; вращающиеся колёса, отлетающие детали при авариях.
+- Живой трафик: седаны, внедорожник, полиция, хэтчбек, грузовик. Машины держат дистанцию, тормозят за тобой и объезжают, если ты медленный; не перестраиваются в тебя. На гудок и моргание фарами уступают полосу, на поворотник — пропускают.
+- Руление кнопками или наклоном телефона.
+- Зеркало заднего вида и взгляд назад.
+- Ремкомплект восстанавливает и броню, и внешний вид машины.
+- Если 3D-модели не загрузились, игра работает на встроенных машинах из кода.
+
 ## Быстрый старт (локально)
 
 Нужен Node.js 18 или новее.
@@ -23,21 +35,32 @@ npm start
 
 | | Клавиатура | Телефон |
 |---|---|---|
-| Руль | ← → или A D | кнопки слева |
+| Руль | ← → или A D | кнопки слева; в гараже можно включить руление наклоном телефона («Steering: tilt») |
 | Газ / тормоз | ↑ ↓ или W S | кнопки справа |
 | Нитро | Space или Shift | кнопка с молнией (газ жать не нужно) |
+| Гудок | H | кнопка с рупором (ближайшая машина впереди в твоей полосе перестроится) |
+| Дальний свет | L | кнопка с лучами (тот же эффект, плюс вспышка фар) |
+| Поворотники | Q (левый) / E (правый) | две янтарные кнопки со стрелками (повтор — выключить; гаснут сами после смены полосы) |
+| Зеркало заднего вида | кнопка в HUD (рядом с паузой) или «Mirror» в гараже | кнопка в HUD |
+| Оглянуться | C (удерживать) | кнопка с глазом (удерживать) |
 | Пауза | P или Esc | кнопка паузы |
 
-## Загрузка на GitHub
+Машина поворачивает только в движении: на месте руль лишь поворачивает передние колёса.
 
-```bash
-git init
-git add .
-git commit -m "Cyber Turbo 3D PWA"
-git branch -M main
-git remote add origin https://github.com/<твой-логин>/cyber-turbo.git
-git push -u origin main
-```
+### Руление наклоном
+
+1. В гараже нажми «Steering: buttons» → станет «Steering: tilt». На iPhone разреши доступ к датчику движения.
+2. Ноль калибруется в момент старта: держи телефон как удобно. Полный поворот — наклон ~22°.
+3. Раскладка в этом режиме: слева столбиком гудок, фары, взгляд назад; по центру спидометр; справа нитро, тормоз, газ, над ними поворотники.
+4. Если датчик не отвечает (например, во встроенном браузере Telegram), через 1.5 с вернутся стрелки и появится подсказка открыть игру в Safari/Chrome.
+
+## Как поделиться игрой
+
+Отправь ссылку https://cyber-turbo.vercel.app (например, в Telegram). Встроенный браузер Telegram не умеет устанавливать PWA, поэтому: ⋮ → «Открыть в браузере», дальше по инструкции из раздела «Установка игроками».
+
+## Репозиторий
+
+https://github.com/komilovsg/cyber-turbo
 
 ## Публикация (выбери один вариант)
 
@@ -49,9 +72,11 @@ git push -u origin main
 
 Адрес будет вида `https://<логин>.github.io/cyber-turbo/`. Все пути в проекте относительные, поэтому подпапка работает.
 
-### Вариант B: Vercel
+### Вариант B: Vercel (используется сейчас)
 
-Import Project → выбери репозиторий → Framework Preset: **Other**. Build Command оставь пустым, Output Directory поставь `.`. Заголовки для `sw.js` уже лежат в `vercel.json`.
+Из терминала: `npm run sw && vercel --prod`.
+
+Автодеплой по push: Vercel → проект → Settings → Git → подключи репозиторий. Framework Preset: **Other**, Build Command пустой, Output Directory `.`. Заголовки для `sw.js` уже лежат в `vercel.json`.
 
 С Vercel перед каждым коммитом запускай `npm run sw`, иначе игроки не получат обновление. В варианте A это делается автоматически.
 
@@ -78,7 +103,8 @@ sw.js                  офлайн-кэш (блок <generated> создаёт 
 manifest.webmanifest   имя, иконки, режим fullscreen
 icons/                 иконки и скриншоты для окна установки
 fonts/                 Chakra Petch (SIL OFL)
-vendor/three/          three.js r170 и нужные addons (MIT)
+vendor/three/          three.js r170 и нужные addons, GLTFLoader, meshopt-декодер (MIT)
+models/                3D-модели машин (GLB, meshopt + webp)
 scripts/build-sw.mjs   генератор списка файлов для sw.js
 ```
 
@@ -87,3 +113,20 @@ scripts/build-sw.mjs   генератор списка файлов для sw.js
 ## Лицензии
 
 three.js распространяется под MIT (`vendor/three/LICENSE`), шрифт Chakra Petch под SIL Open Font License (`fonts/OFL.txt`).
+
+## Credits
+
+3D car models (converted to GLB, compressed with meshopt and WebP textures). CC-BY 4.0: https://creativecommons.org/licenses/by/4.0/
+
+- Chevrolet Camaro by PuKkBuMXDD, CC-BY 4.0, [source](https://poly.pizza/m/kVcKsd2dEk)
+- Lamborghini Aventador by Ignition Labs, CC-BY 4.0, [source](https://poly.pizza/m/5zUWP5UsLg-)
+- Mazda RX-7 by IvOfficial, CC-BY 4.0, [source](https://poly.pizza/m/SnIoWlh7S2)
+- Dodge Charger by David Sirera, CC-BY 4.0, [source](https://poly.pizza/m/4b80hRVxqvv)
+- Cesium Milk Truck by Cesium, CC-BY 4.0, [source](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CesiumMilkTruck)
+- Pickup Truck by Quaternius, CC0, [source](https://poly.pizza/m/qn4grQgHm8)
+- Car (sedan) by Quaternius, CC0, [source](https://poly.pizza/m/Cz6yDaUcM9)
+- Car (sedan 2) by Quaternius, CC0, [source](https://poly.pizza/m/unqqkULtRU)
+- SUV by Quaternius, CC0, [source](https://poly.pizza/m/xsMtZhBkxL)
+- Police Car by Quaternius, CC0, [source](https://poly.pizza/m/BwwnUrWGmV)
+- Car Hatchback by Kay Lousberg, CC0, [source](https://poly.pizza/m/BG0KAhmGDt)
+- three.js, MIT, https://threejs.org
