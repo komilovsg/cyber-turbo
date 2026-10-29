@@ -1,0 +1,17 @@
+{
+  "name": "cyber-turbo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cyber Turbo 3D: installable offline PWA racing game built with three.js",
+  "type": "module",
+  "scripts": {
+    "sw": "node scripts/build-sw.mjs",
+    "start": "npm run sw && serve . -l 5173"
+  },
+  "devDependencies": {
+    "serve": "^14.2.4"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

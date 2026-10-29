@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cyber Turbo 3D</title>
+<meta name="description" content="Neon night-highway racer. Dodge traffic, chain near misses, burn nitro. Installable and playable offline.">
+<meta name="theme-color" content="#0d0618">
+<meta name="color-scheme" content="dark">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cyber Turbo">
+<link rel="preload" href="fonts/chakra-petch-latin-700-italic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="vendor/three/three.module.js" as="script" crossorigin>
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor"/></symbol>
+    <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></symbol>
+    <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 9.5l5 5M21.5 9.5l-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h6l-1 8 9-12h-6z" fill="currentColor"/></symbol>
+    <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M12 8v8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-gas" viewBox="0 0 24 24"><path d="M6 13l6-6 6 6M6 19l6-6 6 6" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-brake" viewBox="0 0 24 24"><path d="M6 11l6 6 6-6M6 5l6 6 6-6" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </svg>
+
+  <div id="stage"></div>
+  <div id="fx-vignette" class="fx" aria-hidden="true"></div>
+  <div id="fx-speed" class="fx" aria-hidden="true"></div>
+  <div id="fx-hit" class="fx" aria-hidden="true"></div>
+
+  <!-- HUD -->
+  <div id="hud" hidden>
+    <div class="hud-top">
+      <section class="panel score-panel" aria-label="Score">
+        <div class="score-label">Score</div>
+        <div id="h-score" class="score num">0</div>
+        <div class="chips">
+          <span id="h-mult" class="chip mult num">×1.0</span>
+          <span class="chip"><svg class="ic"><use href="#i-coin"/></svg><span id="h-coins" class="num">0</span></span>
+          <span class="chip"><span id="h-dist" class="num">0.0</span>&nbsp;km</span>
+        </div>
+      </section>
+      <div class="top-right">
+        <div class="buttons">
+          <button id="b-sound" class="icon-btn" type="button" aria-label="Mute sound"><svg class="ic"><use href="#i-sound"/></svg></button>
+          <button id="b-pause" class="icon-btn" type="button" aria-label="Pause"><svg class="ic"><use href="#i-pause"/></svg></button>
+        </div>
+        <section class="panel bars" aria-label="Car status">
+          <div class="bar-row"><span>Hull</span><b id="h-hp" class="num">100%</b></div>
+          <div id="h-hp-wrap" class="bar hull"><i id="h-hp-bar"></i></div>
+          <div class="bar-row"><span>Nitro</span><b id="h-nitro-txt">Ready</b></div>
+          <div class="bar nitro"><i id="h-nitro-bar"></i></div>
+        </section>
+      </div>
+    </div>
+
+    <div id="pops" aria-live="polite"></div>
+
+    <div class="speedo">
+      <svg viewBox="0 0 120 120" aria-hidden="true">
+        <defs>
+          <linearGradient id="g-speed" x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0" stop-color="#2de2e6"/><stop offset="0.6" stop-color="#ff2a6d"/><stop offset="1" stop-color="#ffb000"/>
+          </linearGradient>
+        </defs>
+        <circle class="arc-bg" cx="60" cy="60" r="50" transform="rotate(135 60 60)"/>
+        <circle id="h-arc" class="arc-fill" cx="60" cy="60" r="50" transform="rotate(135 60 60)"/>
+      </svg>
+      <div class="speedo-read"><span id="h-speed" class="num">0</span><small>km/h</small><b id="h-gear">N</b></div>
+    </div>
+
+    <div class="keys-hint" aria-hidden="true">
+      <span><kbd>←</kbd> <kbd>→</kbd></span><span>Steer</span>
+      <span><kbd>↑</kbd> <kbd>↓</kbd></span><span>Gas and brake</span>
+      <span><kbd>Space</kbd></span><span>Nitro</span>
+      <span><kbd>P</kbd></span><span>Pause</span>
+    </div>
+
+    <div class="touch" id="touch">
+      <div class="t-left">
+        <button class="t-btn" data-key="left" type="button" aria-label="Steer left"><svg class="ic"><use href="#i-left"/></svg></button>
+        <button class="t-btn" data-key="right" type="button" aria-label="Steer right"><svg class="ic"><use href="#i-right"/></svg></button>
+      </div>
+      <div class="t-right">
+        <button class="t-btn small nitro" data-key="nitro" type="button" aria-label="Nitro"><svg class="ic"><use href="#i-bolt"/></svg></button>
+        <button class="t-btn small brake" data-key="brake" type="button" aria-label="Brake"><svg class="ic"><use href="#i-brake"/></svg></button>
+        <button class="t-btn gas" data-key="gas" type="button" aria-label="Gas"><svg class="ic"><use href="#i-gas"/></svg></button>
+      </div>
+    </div>
+  </div>
+
+  <div id="countdown" class="countdown" hidden aria-live="assertive"></div>
+
+  <!-- Garage -->
+  <div id="garage" class="garage">
+    <header class="g-head">
+      <h1 class="wordmark"><span>Cyber</span><span>Turbo</span></h1>
+      <div class="panel best"><small>Best score</small><b id="g-best" class="num">0</b></div>
+    </header>
+    <section class="panel g-panel" aria-label="Choose your car">
+      <div class="car-switch">
+        <button id="g-prev" class="icon-btn" type="button" aria-label="Previous car"><svg class="ic"><use href="#i-left"/></svg></button>
+        <div class="car-id"><h2 id="g-name">Cyber Roadster</h2><p id="g-tag"></p></div>
+        <button id="g-next" class="icon-btn" type="button" aria-label="Next car"><svg class="ic"><use href="#i-right"/></svg></button>
+      </div>
+      <div class="dots" id="g-dots"></div>
+      <dl class="stats" id="g-stats"></dl>
+      <button id="g-start" class="cta" type="button">Start race</button>
+      <div class="g-opts">
+        <button id="g-quality" class="opt" type="button">Graphics: high</button>
+        <button id="g-sound" class="opt" type="button">Sound: on</button>
+        <button id="g-install" class="opt install" type="button" hidden>Install app</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- Pause / results -->
+  <div id="modal" class="modal" hidden>
+    <section id="m-pause" class="panel card" hidden aria-label="Paused">
+      <h2>Paused</h2>
+      <div class="stack">
+        <button id="m-resume" class="cta" type="button">Resume</button>
+        <button id="m-quit" class="ghost" type="button">Back to garage</button>
+      </div>
+    </section>
+    <section id="m-over" class="panel card over" hidden aria-label="Race results">
+      <h2>Wrecked</h2>
+      <p class="sub" id="o-sub">The hull gave out.</p>
+      <p id="o-best" class="badge" hidden>New best score</p>
+      <dl class="results">
+        <div><dt>Score</dt><dd id="o-score" class="num">0</dd></div>
+        <div><dt>Distance</dt><dd id="o-dist" class="num">0.0 km</dd></div>
+        <div><dt>Coins</dt><dd id="o-coins" class="num">0</dd></div>
+        <div><dt>Near misses</dt><dd id="o-near" class="num">0</dd></div>
+      </dl>
+      <div class="row">
+        <button id="o-garage" class="ghost" type="button">Garage</button>
+        <button id="o-retry" class="cta" type="button">Race again</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="ios-hint" class="modal" hidden>
+    <section class="panel card" aria-label="Install on iPhone or iPad">
+      <h2>Install</h2>
+      <p class="sub">In Safari, tap the Share button, then choose “Add to Home Screen”. Cyber Turbo will open full screen and work offline.</p>
+      <button id="ios-ok" class="cta" type="button">Got it</button>
+    </section>
+  </div>
+
+  <div id="toast" class="panel toast" role="status" hidden>
+    <span id="toast-text"></span>
+    <button id="toast-btn" class="opt" type="button" hidden></button>
+    <button id="toast-close" class="toast-x" type="button" aria-label="Dismiss">×</button>
+  </div>
+
+  <noscript><div class="panel err"><h2>JavaScript is off</h2><p>Cyber Turbo needs JavaScript to run. Turn it on and reload the page.</p></div></noscript>
+
+<script type="module" src="js/game.js"></script>
+<script type="module" src="js/pwa.js"></script>
+</body>
+</html>
