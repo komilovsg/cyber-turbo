@@ -23,9 +23,14 @@ npm start
 
 | | Клавиатура | Телефон |
 |---|---|---|
-| Руль | ← → или A D | кнопки слева |
+| Руль | ← → или A D | кнопки слева; в гараже можно включить руление наклоном телефона («Steering: tilt») |
 | Газ / тормоз | ↑ ↓ или W S | кнопки справа |
 | Нитро | Space или Shift | кнопка с молнией (газ жать не нужно) |
+| Гудок | H | кнопка с рупором (ближайшая машина впереди в твоей полосе перестроится) |
+| Дальний свет | L | кнопка с лучами (тот же эффект, плюс вспышка фар) |
+| Поворотники | Q (левый) / E (правый) | две янтарные кнопки со стрелками (повтор — выключить; гаснут сами после смены полосы) |
+| Зеркало заднего вида | кнопка в HUD (рядом с паузой) или «Mirror» в гараже | кнопка в HUD |
+| Оглянуться | C (удерживать) | кнопка с глазом (удерживать) |
 | Пауза | P или Esc | кнопка паузы |
 
 ## Загрузка на GitHub
@@ -78,7 +83,8 @@ sw.js                  офлайн-кэш (блок <generated> создаёт 
 manifest.webmanifest   имя, иконки, режим fullscreen
 icons/                 иконки и скриншоты для окна установки
 fonts/                 Chakra Petch (SIL OFL)
-vendor/three/          three.js r170 и нужные addons (MIT)
+vendor/three/          three.js r170 и нужные addons, GLTFLoader, meshopt-декодер (MIT)
+models/                3D-модели машин (GLB, meshopt + webp)
 scripts/build-sw.mjs   генератор списка файлов для sw.js
 ```
 
@@ -87,3 +93,20 @@ scripts/build-sw.mjs   генератор списка файлов для sw.js
 ## Лицензии
 
 three.js распространяется под MIT (`vendor/three/LICENSE`), шрифт Chakra Petch под SIL Open Font License (`fonts/OFL.txt`).
+
+## Credits
+
+3D car models (converted to GLB, compressed with meshopt and WebP textures). CC-BY 4.0: https://creativecommons.org/licenses/by/4.0/
+
+- Chevrolet Camaro by PuKkBuMXDD, CC-BY 4.0, [source](https://poly.pizza/m/kVcKsd2dEk)
+- Lamborghini Aventador by Ignition Labs, CC-BY 4.0, [source](https://poly.pizza/m/5zUWP5UsLg-)
+- Mazda RX-7 by IvOfficial, CC-BY 4.0, [source](https://poly.pizza/m/SnIoWlh7S2)
+- Dodge Charger by David Sirera, CC-BY 4.0, [source](https://poly.pizza/m/4b80hRVxqvv)
+- Cesium Milk Truck by Cesium, CC-BY 4.0, [source](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CesiumMilkTruck)
+- Pickup Truck by Quaternius, CC0, [source](https://poly.pizza/m/qn4grQgHm8)
+- Car (sedan) by Quaternius, CC0, [source](https://poly.pizza/m/Cz6yDaUcM9)
+- Car (sedan 2) by Quaternius, CC0, [source](https://poly.pizza/m/unqqkULtRU)
+- SUV by Quaternius, CC0, [source](https://poly.pizza/m/xsMtZhBkxL)
+- Police Car by Quaternius, CC0, [source](https://poly.pizza/m/BwwnUrWGmV)
+- Car Hatchback by Kay Lousberg, CC0, [source](https://poly.pizza/m/BG0KAhmGDt)
+- three.js, MIT, https://threejs.org
